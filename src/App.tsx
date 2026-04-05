@@ -2147,6 +2147,9 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
     try {
       const user = users.find(u => u.id === userId);
       if (!user) return;
+      
+      // If we are toggling a permission for an admin, we should probably warn or just allow it
+      // but usually admins should have all permissions.
       await updateDoc(doc(db, 'app_users', userId), {
         [`permisos.${permiso}`]: !current
       });
@@ -2155,7 +2158,48 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
     }
   };
 
+  const toggleRol = async (userId: string, currentRol: string) => {
+    if (userId === userProfile?.id) {
+      alert('No puedes cambiar tu propio rol.');
+      return;
+    }
+    
+    const newRol = currentRol === 'administrador' ? 'barbero' : 'administrador';
+    const confirmMsg = `¿Cambiar el rol de este usuario a ${newRol}?`;
+    
+    if (confirm(confirmMsg)) {
+      try {
+        const updateData: any = { rol: newRol };
+        // If promoting to admin, ensure all permissions are true
+        if (newRol === 'administrador') {
+          updateData.permisos = {
+            citas: true,
+            servicios: true,
+            barberos: true,
+            inventario: true,
+            reportes: true,
+            configuracion: true
+          };
+        }
+        await updateDoc(doc(db, 'app_users', userId), updateData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `app_users/${userId}`);
+      }
+    }
+  };
+
   const deleteUser = async (id: string) => {
+    if (id === userProfile?.id) {
+      alert('No puedes eliminar tu propia cuenta desde aquí.');
+      return;
+    }
+
+    const userToDelete = users.find(u => u.id === id);
+    if (userToDelete?.email === 'cristian.floresg.app@gmail.com') {
+      alert('El administrador principal no puede ser eliminado.');
+      return;
+    }
+
     if (confirm('¿Eliminar este usuario?')) {
       try {
         await deleteDoc(doc(db, 'app_users', id));
@@ -2345,10 +2389,13 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
                     <p className="text-xs text-slate-500 dark:text-slate-400">{u.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase ${u.rol === 'administrador' ? 'bg-primary/10 text-primary' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'}`}>
+                    <button 
+                      onClick={() => toggleRol(u.id, u.rol)}
+                      className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase transition-all hover:scale-105 ${u.rol === 'administrador' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'}`}
+                    >
                       {u.rol}
-                    </span>
-                    <button onClick={() => deleteUser(u.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500 transition-colors">
+                    </button>
+                    <button onClick={() => deleteUser(u.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500 transition-colors p-1">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -3066,19 +3113,62 @@ function App() {
         const userSnap = await getDoc(userDocRef);
         
         if (userSnap.exists()) {
-          setUserProfile({ id: userSnap.id, ...userSnap.data() } as AppUser);
+          const data = userSnap.data() as AppUser;
+          // Migration: Ensure configuracion permission exists for everyone
+          // AND ensure administrators have all permissions
+          const needsUpdate = !data.permisos || 
+                             data.permisos.configuracion === undefined || 
+                             (data.rol === 'administrador' && Object.values(data.permisos).some(v => v === false));
+
+          if (needsUpdate) {
+            const updatedPermisos = { ...data.permisos };
+            if (data.rol === 'administrador') {
+              updatedPermisos.citas = true;
+              updatedPermisos.servicios = true;
+              updatedPermisos.barberos = true;
+              updatedPermisos.inventario = true;
+              updatedPermisos.reportes = true;
+              updatedPermisos.configuracion = true;
+            } else {
+              updatedPermisos.configuracion = true;
+            }
+            await updateDoc(userDocRef, { permisos: updatedPermisos });
+            setUserProfile({ id: userSnap.id, ...data, permisos: updatedPermisos } as AppUser);
+          } else {
+            setUserProfile({ id: userSnap.id, ...data } as AppUser);
+          }
         } else {
+          // Check if a profile with this email already exists (created via addUser)
+          const q = query(collection(db, 'app_users'), where('email', '==', u.email), limit(1));
+          const querySnap = await getDocs(q);
+          
+          let existingProfile: any = null;
+          if (!querySnap.empty) {
+            // Found a profile created by email, we'll use its data
+            const docData = querySnap.docs[0].data();
+            existingProfile = { ...docData };
+            // Delete the old random-id document
+            try {
+              await deleteDoc(doc(db, 'app_users', querySnap.docs[0].id));
+            } catch (e) {
+              console.error("Error deleting old profile doc:", e);
+            }
+          }
+
           // Check if it's the first user to assign admin role
-          let isFirst = false;
-          try {
-            const usersSnap = await getDocs(collection(db, 'app_users'));
-            isFirst = usersSnap.empty;
-          } catch (e) {
-            // If we can't list users, assume not first unless we are the bootstrap admin
-            isFirst = u.email === 'cristian.floresg.app@gmail.com';
+          let isFirst = u.email === 'cristian.floresg.app@gmail.com';
+          if (!isFirst && !existingProfile) {
+            try {
+              // This might still fail if not admin, but we handle it
+              const allUsersSnap = await getDocs(query(collection(db, 'app_users'), limit(1)));
+              isFirst = allUsersSnap.empty;
+            } catch (e) {
+              // If we can't list, assume not first or just rely on email
+              isFirst = false;
+            }
           }
           
-          const newProfile = {
+          const newProfile = existingProfile || {
             email: u.email!,
             nombre: u.displayName || 'Usuario',
             rol: isFirst ? 'administrador' : 'barbero',
@@ -3087,9 +3177,16 @@ function App() {
               servicios: isFirst,
               barberos: isFirst,
               inventario: true,
-              reportes: isFirst
+              reportes: isFirst,
+              configuracion: true // Everyone can change config by default now
             }
           };
+          
+          // Ensure configuracion is true if it was missing or false
+          if (newProfile.permisos) {
+            newProfile.permisos.configuracion = true;
+          }
+
           try {
             await setDoc(userDocRef, newProfile);
             setUserProfile({ id: u.uid, ...newProfile } as AppUser);
