@@ -224,12 +224,11 @@ const Sidebar = ({ activeTab, setActiveTab, user, userProfile, onLogout, theme, 
     { id: 'barberos', label: 'Barberos', icon: Users, permiso: 'barberos' },
     { id: 'inventario', label: 'Inventario', icon: Package, permiso: 'inventario' },
     { id: 'reportes', label: 'Reportes', icon: BarChart3, permiso: 'reportes' },
-    { id: 'configuracion', label: 'Configuración', icon: Settings, adminOnly: true },
+    { id: 'configuracion', label: 'Configuración', icon: Settings, permiso: 'configuracion' },
   ];
 
   const filteredTabs = tabs.filter(tab => {
-    if (tab.adminOnly) return userProfile?.rol === 'administrador';
-    if (tab.permiso) return userProfile?.permisos?.[tab.permiso as keyof typeof userProfile.permisos] !== false;
+    if (tab.permiso) return userProfile?.rol === 'administrador' || userProfile?.permisos?.[tab.permiso as keyof typeof userProfile.permisos] !== false;
     return true;
   });
 
@@ -2130,10 +2129,11 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
         rol: newUserRol,
         permisos: {
           citas: true,
-          servicios: newUserRol === 'administrador',
-          barberos: newUserRol === 'administrador',
+          servicios: true,
+          barberos: true,
           inventario: true,
-          reportes: newUserRol === 'administrador'
+          reportes: true,
+          configuracion: true
         }
       });
       setNewUserName('');
@@ -3044,7 +3044,7 @@ const Reportes = () => {
 
 // --- Main App ---
 
-export default function App() {
+function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<AppUser | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig>({ 
@@ -3207,8 +3207,8 @@ export default function App() {
   const toggleTheme = () => {
     const newTheme = appConfig.theme === 'dark' ? 'light' : 'dark';
     setAppConfig(prev => ({ ...prev, theme: newTheme }));
-    // Save to Firestore if admin
-    if (userProfile?.rol === 'administrador') {
+    // Save to Firestore if admin or has config permission
+    if (userProfile?.rol === 'administrador' || userProfile?.permisos?.configuracion) {
       updateDoc(doc(db, 'app_config', 'global'), { theme: newTheme }).catch(console.error);
     }
   };
@@ -3282,3 +3282,5 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+
+export default App;

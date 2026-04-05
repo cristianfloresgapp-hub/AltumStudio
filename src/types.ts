@@ -57,6 +57,7 @@ export interface AppUser {
     barberos: boolean;
     inventario: boolean;
     reportes: boolean;
+    configuracion: boolean;
   };
 }
 
