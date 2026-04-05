@@ -95,6 +95,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from 'xlsx';
 
+const PRIMARY_ADMIN_EMAIL = 'cristian.floresg.app@gmail.com';
+
 // --- Error Handling ---
 
 enum OperationType {
@@ -948,6 +950,7 @@ const BarberosManager = () => {
     if (!deleteModal.id) return;
     try {
       await deleteDoc(doc(db, 'barberos', deleteModal.id));
+      setDeleteModal({ ...deleteModal, isOpen: false });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `barberos/${deleteModal.id}`);
     }
@@ -2081,19 +2084,29 @@ const InventarioManager = () => {
 // 6. Configuracion Manager
 const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: { config: AppConfig, setConfig: (c: AppConfig) => void, userProfile: AppUser | null, setActiveTab: (t: string) => void }) => {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const isPrimaryAdmin = userProfile?.email === PRIMARY_ADMIN_EMAIL;
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserRol, setNewUserRol] = useState<'administrador' | 'barbero'>('barbero');
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean, id: string | null, nombre: string }>({
+    isOpen: false,
+    id: null,
+    nombre: ''
+  });
 
   useEffect(() => {
+    if (!userProfile?.rol) return;
+    
     const unsub = onSnapshot(collection(db, 'app_users'), (snap) => {
       setUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser)));
+    }, (error) => {
+      console.error("Error listing users:", error);
     });
     return unsub;
-  }, []);
+  }, [userProfile]);
 
   useEffect(() => {
     setLocalConfig(config);
@@ -2103,12 +2116,18 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
     setSaving(true);
     setSaved(false);
     try {
-      await updateDoc(doc(db, 'app_config', 'global'), {
+      const updateData: any = {
         theme: localConfig.theme,
-        preset: localConfig.preset,
-        startHour: localConfig.startHour,
-        endHour: localConfig.endHour
-      });
+        preset: localConfig.preset
+      };
+
+      // Only primary admin can update hours
+      if (isPrimaryAdmin) {
+        updateData.startHour = localConfig.startHour;
+        updateData.endHour = localConfig.endHour;
+      }
+
+      await updateDoc(doc(db, 'app_config', 'global'), updateData);
       setConfig(localConfig);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -2188,7 +2207,7 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
     }
   };
 
-  const deleteUser = async (id: string) => {
+  const deleteUser = (id: string) => {
     if (id === userProfile?.id) {
       alert('No puedes eliminar tu propia cuenta desde aquí.');
       return;
@@ -2200,17 +2219,35 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
       return;
     }
 
-    if (confirm('¿Eliminar este usuario?')) {
-      try {
-        await deleteDoc(doc(db, 'app_users', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `app_users/${id}`);
-      }
+    setDeleteModal({
+      isOpen: true,
+      id,
+      nombre: userToDelete?.nombre || 'este usuario'
+    });
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteModal.id) return;
+    try {
+      await deleteDoc(doc(db, 'app_users', deleteModal.id));
+      setDeleteModal({ ...deleteModal, isOpen: false });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `app_users/${deleteModal.id}`);
     }
   };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ConfirmationModal 
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ ...deleteModal, isOpen: false })}
+        onConfirm={confirmDeleteUser}
+        title="¿Eliminar Usuario?"
+        message={`¿Estás seguro de que deseas eliminar al usuario "${deleteModal.nombre}"? Perderá el acceso a la plataforma.`}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
       <div className="flex justify-between items-start">
         <div>
           <h2 className="text-3xl font-bold text-slate-900 dark:text-white">Configuración</h2>
@@ -2225,9 +2262,9 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className={`grid grid-cols-1 ${isPrimaryAdmin ? 'lg:grid-cols-2' : ''} gap-8`}>
         {/* Preferencias Generales */}
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 flex flex-col">
+        <div className={`bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 flex flex-col ${!isPrimaryAdmin ? 'max-w-2xl mx-auto w-full' : ''}`}>
           <h3 className="text-xl font-bold flex items-center gap-2 dark:text-white">
             <Settings className="w-5 h-5 text-primary" />
             Preferencias de la App
@@ -2289,35 +2326,37 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Rango Horario del Calendario</label>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-slate-400 mb-1 block">Hora Inicio</span>
-                  <select 
-                    value={localConfig.startHour} 
-                    onChange={e => setLocalConfig({ ...localConfig, startHour: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                  >
-                    {Array.from({length: 24}).map((_, i) => (
-                      <option key={i} value={i}>{i}:00</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-400 mb-1 block">Hora Fin</span>
-                  <select 
-                    value={localConfig.endHour} 
-                    onChange={e => setLocalConfig({ ...localConfig, endHour: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                  >
-                    {Array.from({length: 24}).map((_, i) => (
-                      <option key={i} value={i}>{i}:00</option>
-                    ))}
-                  </select>
+            {isPrimaryAdmin && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Rango Horario del Calendario</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs text-slate-400 mb-1 block">Hora Inicio</span>
+                    <select 
+                      value={localConfig.startHour} 
+                      onChange={e => setLocalConfig({ ...localConfig, startHour: parseInt(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    >
+                      {Array.from({length: 24}).map((_, i) => (
+                        <option key={i} value={i}>{i}:00</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-400 mb-1 block">Hora Fin</span>
+                    <select 
+                      value={localConfig.endHour} 
+                      onChange={e => setLocalConfig({ ...localConfig, endHour: parseInt(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    >
+                      {Array.from({length: 24}).map((_, i) => (
+                        <option key={i} value={i}>{i}:00</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -2349,76 +2388,78 @@ const ConfiguracionManager = ({ config, setConfig, userProfile, setActiveTab }: 
         </div>
 
         {/* Gestión de Usuarios */}
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <h3 className="text-xl font-bold flex items-center gap-2 dark:text-white">
-            <UserPlus className="w-5 h-5 text-primary" />
-            Usuarios y Roles
-          </h3>
+        {isPrimaryAdmin && (
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+            <h3 className="text-xl font-bold flex items-center gap-2 dark:text-white">
+              <UserPlus className="w-5 h-5 text-primary" />
+              Usuarios y Roles
+            </h3>
 
-          <form onSubmit={addUser} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input 
-                type="text" placeholder="Nombre" required value={newUserName} onChange={e => setNewUserName(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-              <input 
-                type="email" placeholder="Email" required value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-            <div className="flex gap-4">
-              <select 
-                value={newUserRol} onChange={e => setNewUserRol(e.target.value as any)}
-                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              >
-                <option value="barbero">Barbero</option>
-                <option value="administrador">Administrador</option>
-              </select>
-              <button type="submit" className="bg-primary text-primary-foreground px-8 py-3 rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-primary/10">
-                Agregar
-              </button>
-            </div>
-          </form>
-
-          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {users.map(u => (
-              <div key={u.id} className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-slate-900 dark:text-white">{u.nombre}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{u.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => toggleRol(u.id, u.rol)}
-                      className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase transition-all hover:scale-105 ${u.rol === 'administrador' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'}`}
-                    >
-                      {u.rol}
-                    </button>
-                    <button onClick={() => deleteUser(u.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500 transition-colors p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(u.permisos).map(([key, val]) => (
-                    <button
-                      key={key}
-                      onClick={() => togglePermiso(u.id, key, val as boolean)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
-                        val ? 'bg-green-100 text-green-700 border border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/30' : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
-                      }`}
-                    >
-                      {val ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                      {key.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
+            <form onSubmit={addUser} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <input 
+                  type="text" placeholder="Nombre" required value={newUserName} onChange={e => setNewUserName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                />
+                <input 
+                  type="email" placeholder="Email" required value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                />
               </div>
-            ))}
+              <div className="flex gap-4">
+                <select 
+                  value={newUserRol} onChange={e => setNewUserRol(e.target.value as any)}
+                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                >
+                  <option value="barbero">Barbero</option>
+                  <option value="administrador">Administrador</option>
+                </select>
+                <button type="submit" className="bg-primary text-primary-foreground px-8 py-3 rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-primary/10">
+                  Agregar
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              {users.map(u => (
+                <div key={u.id} className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white">{u.nombre}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{u.email}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => toggleRol(u.id, u.rol)}
+                        className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase transition-all hover:scale-105 ${u.rol === 'administrador' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'}`}
+                      >
+                        {u.rol}
+                      </button>
+                      <button onClick={() => deleteUser(u.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500 transition-colors p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(u.permisos).map(([key, val]) => (
+                      <button
+                        key={key}
+                        onClick={() => togglePermiso(u.id, key, val as boolean)}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                          val ? 'bg-green-100 text-green-700 border border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/30' : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
+                        }`}
+                      >
+                        {val ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        {key.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -3105,102 +3146,106 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
+    let unsubProfile: (() => void) | null = null;
+
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        // Fetch User Profile by UID directly
+        // Real-time listener for User Profile by UID
         const userDocRef = doc(db, 'app_users', u.uid);
-        const userSnap = await getDoc(userDocRef);
-        
-        if (userSnap.exists()) {
-          const data = userSnap.data() as AppUser;
-          // Migration: Ensure configuracion permission exists for everyone
-          // AND ensure administrators have all permissions
-          const needsUpdate = !data.permisos || 
-                             data.permisos.configuracion === undefined || 
-                             (data.rol === 'administrador' && Object.values(data.permisos).some(v => v === false));
+        unsubProfile = onSnapshot(userDocRef, async (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as AppUser;
+            // Migration: Ensure configuracion permission exists for everyone
+            // AND ensure administrators have all permissions
+            const needsUpdate = !data.permisos || 
+                               data.permisos.configuracion === undefined || 
+                               (data.rol === 'administrador' && Object.values(data.permisos).some(v => v === false));
 
-          if (needsUpdate) {
-            const updatedPermisos = { ...data.permisos };
-            if (data.rol === 'administrador') {
-              updatedPermisos.citas = true;
-              updatedPermisos.servicios = true;
-              updatedPermisos.barberos = true;
-              updatedPermisos.inventario = true;
-              updatedPermisos.reportes = true;
-              updatedPermisos.configuracion = true;
+            if (needsUpdate) {
+              const updatedPermisos = { ...data.permisos };
+              if (data.rol === 'administrador') {
+                updatedPermisos.citas = true;
+                updatedPermisos.servicios = true;
+                updatedPermisos.barberos = true;
+                updatedPermisos.inventario = true;
+                updatedPermisos.reportes = true;
+                updatedPermisos.configuracion = true;
+              } else {
+                updatedPermisos.configuracion = true;
+              }
+              await updateDoc(userDocRef, { permisos: updatedPermisos });
+              // The snapshot will trigger again after update
             } else {
-              updatedPermisos.configuracion = true;
+              setUserProfile({ id: snap.id, ...data } as AppUser);
             }
-            await updateDoc(userDocRef, { permisos: updatedPermisos });
-            setUserProfile({ id: userSnap.id, ...data, permisos: updatedPermisos } as AppUser);
           } else {
-            setUserProfile({ id: userSnap.id, ...data } as AppUser);
-          }
-        } else {
-          // Check if a profile with this email already exists (created via addUser)
-          const q = query(collection(db, 'app_users'), where('email', '==', u.email), limit(1));
-          const querySnap = await getDocs(q);
-          
-          let existingProfile: any = null;
-          if (!querySnap.empty) {
-            // Found a profile created by email, we'll use its data
-            const docData = querySnap.docs[0].data();
-            existingProfile = { ...docData };
-            // Delete the old random-id document
-            try {
-              await deleteDoc(doc(db, 'app_users', querySnap.docs[0].id));
-            } catch (e) {
-              console.error("Error deleting old profile doc:", e);
+            // Check if a profile with this email already exists (created via addUser)
+            const q = query(collection(db, 'app_users'), where('email', '==', u.email), limit(1));
+            const querySnap = await getDocs(q);
+            
+            let existingProfile: any = null;
+            if (!querySnap.empty) {
+              const docData = querySnap.docs[0].data();
+              existingProfile = { ...docData };
+              try {
+                await deleteDoc(doc(db, 'app_users', querySnap.docs[0].id));
+              } catch (e) {
+                console.error("Error deleting old profile doc:", e);
+              }
             }
-          }
 
-          // Check if it's the first user to assign admin role
-          let isFirst = u.email === 'cristian.floresg.app@gmail.com';
-          if (!isFirst && !existingProfile) {
-            try {
-              // This might still fail if not admin, but we handle it
-              const allUsersSnap = await getDocs(query(collection(db, 'app_users'), limit(1)));
-              isFirst = allUsersSnap.empty;
-            } catch (e) {
-              // If we can't list, assume not first or just rely on email
-              isFirst = false;
+            let isFirst = u.email === 'cristian.floresg.app@gmail.com' || u.email === 'cristian.floresg@gmail.com';
+            if (!isFirst && !existingProfile) {
+              try {
+                const allUsersSnap = await getDocs(query(collection(db, 'app_users'), limit(1)));
+                isFirst = allUsersSnap.empty;
+              } catch (e) {
+                isFirst = false;
+              }
             }
-          }
-          
-          const newProfile = existingProfile || {
-            email: u.email!,
-            nombre: u.displayName || 'Usuario',
-            rol: isFirst ? 'administrador' : 'barbero',
-            permisos: {
-              citas: true,
-              servicios: isFirst,
-              barberos: isFirst,
-              inventario: true,
-              reportes: isFirst,
-              configuracion: true // Everyone can change config by default now
+            
+            const newProfile = existingProfile || {
+              email: u.email!,
+              nombre: u.displayName || 'Usuario',
+              rol: isFirst ? 'administrador' : 'barbero',
+              permisos: {
+                citas: true,
+                servicios: isFirst,
+                barberos: isFirst,
+                inventario: true,
+                reportes: isFirst,
+                configuracion: true
+              }
+            };
+            
+            if (newProfile.permisos) {
+              newProfile.permisos.configuracion = true;
             }
-          };
-          
-          // Ensure configuracion is true if it was missing or false
-          if (newProfile.permisos) {
-            newProfile.permisos.configuracion = true;
-          }
 
-          try {
-            await setDoc(userDocRef, newProfile);
-            setUserProfile({ id: u.uid, ...newProfile } as AppUser);
-          } catch (e) {
-            handleFirestoreError(e, OperationType.WRITE, `app_users/${u.uid}`);
+            try {
+              await setDoc(userDocRef, newProfile);
+              // Snapshot listener will pick this up
+            } catch (e) {
+              handleFirestoreError(e, OperationType.WRITE, `app_users/${u.uid}`);
+            }
           }
-        }
+          setLoading(false);
+        }, (error) => {
+          console.error("Profile snapshot error:", error);
+          setLoading(false);
+        });
       } else {
         setUserProfile(null);
+        if (unsubProfile) unsubProfile();
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => { unsubAuth(); };
+    return () => { 
+      unsubAuth(); 
+      if (unsubProfile) unsubProfile();
+    };
   }, []);
 
   useEffect(() => {

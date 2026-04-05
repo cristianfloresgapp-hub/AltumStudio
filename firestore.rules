@@ -31,18 +31,28 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function getUserData() {
+      return get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data;
+    }
+
+    function isPrimaryAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.email == "cristian.floresg.app@gmail.com" && request.auth.token.email_verified == true);
+    }
+
     function isAdmin() {
       return isAuthenticated() && 
-        ((exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.rol == 'administrador') ||
-         (request.auth.token.email == "cristian.floresg.app@gmail.com" && request.auth.token.email_verified == true));
+        (isPrimaryAdmin() || 
+         (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
+          getUserData().rol == 'administrador') ||
+         (request.auth.token.email == "cristian.floresg@gmail.com" && request.auth.token.email_verified == true));
     }
 
     function hasPermission(permiso) {
       return isAuthenticated() && 
-        (isAdmin() || 
-         (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.permisos[permiso] == true));
+             (isAdmin() || 
+              (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
+               getUserData().permisos[permiso] == true));
     }
 
     function hasRequiredFields(fields) {
@@ -94,18 +104,24 @@ service cloud.firestore {
                    (isAuthenticated() && request.query.limit <= 10 && request.query.filters.size() > 0 && 
                     request.query.filters[0].op == '==' && request.query.filters[0].field == 'email' && 
                     request.query.filters[0].value == request.auth.token.email);
-      // Allow get for self or admin or config permission
-      allow get: if isAuthenticated() && (request.auth.uid == userId || hasPermission('configuracion'));
+      // Allow get for self (by UID or email) or admin or config permission
+      allow get: if isAuthenticated() && (request.auth.uid == userId || resource.data.email == request.auth.token.email || hasPermission('configuracion'));
       // Allow create if it's the first user or if admin or config permission
-      allow create: if isAuthenticated() && (hasPermission('configuracion') || !exists(/databases/$(database)/documents/app_users/$(userId)));
-      // Allow update/delete only for admins or config permission
-      allow update, delete: if hasPermission('configuracion');
+      allow create: if isAuthenticated() && (isPrimaryAdmin() || !exists(/databases/$(database)/documents/app_users/$(userId)));
+      // Allow update for primary admin or the user themselves (for migration/profile updates)
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || request.auth.uid == userId);
+      // Allow delete only for primary admin
+      allow delete: if isPrimaryAdmin();
     }
 
     // App Config
     match /app_config/{configId} {
       allow read: if isAuthenticated();
-      allow write: if hasPermission('configuracion');
+      allow update: if hasPermission('configuracion') && 
+                    (isPrimaryAdmin() || 
+                     (request.resource.data.startHour == resource.data.startHour && 
+                      request.resource.data.endHour == resource.data.endHour));
+      allow create, delete: if isPrimaryAdmin();
     }
   }
 }
