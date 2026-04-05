@@ -76,3 +76,4 @@
 - **Comisiones:** Se calculan en base a los servicios completados.
 - **Ventas:** Cada venta debe estar asociada a un barbero y resta stock automáticamente del inventario.
 - **Acceso:** El acceso está restringido a personal autorizado mediante validación de correo electrónico en Firestore.
+Última actualización: 05 de abril de 2026
