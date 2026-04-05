@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+}
+
+@layer base {
+  :root {
+    --primary: #f59e0b; /* Amber 500 */
+    --primary-foreground: #0f172a; /* Slate 900 */
+    --accent: #fbbf24; /* Amber 400 */
+    --accent-foreground: #0f172a;
+  }
+
+  .preset-altum {
+    --primary: #E2D1A1; /* Gold/Cream from image */
+    --primary-foreground: #121212;
+    --accent: #C5B358; /* Metallic Gold */
+    --accent-foreground: #ffffff;
+  }
+
+  .preset-royal {
+    --primary: #3b82f6; /* Blue 500 */
+    --primary-foreground: #ffffff;
+    --accent: #E2D1A1; /* Gold accent */
+    --accent-foreground: #121212;
+  }
+
+  .preset-vintage {
+    --primary: #78350f; /* Brown 900 */
+    --primary-foreground: #fef3c7; /* Amber 100 */
+    --accent: #d97706; /* Amber 600 */
+    --accent-foreground: #ffffff;
+  }
+
+  * {
+    @apply transition-colors duration-300;
+  }
+}
