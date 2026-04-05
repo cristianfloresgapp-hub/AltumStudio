@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: barberos
+    // Fields: { nombre: string, especialidad: string, activo: bool }
+    //
+    // Collection: servicios
+    // Fields: { nombre: string, precio: number, duracion: number }
+    //
+    // Collection: citas
+    // Fields: { cliente: string, servicio_id: string, servicio_nombre: string, precio: number, barbero_id: string, start_time: string, end_time: string, status: string }
+    //
+    // Collection: productos
+    // Fields: { nombre: string, stock: number, precio: number, alerta_minima: number }
+    //
+    // Collection: ventas
+    // Fields: { producto_id: string, cantidad: number, total: number, fecha: string, barbero_id: string }
+    //
+    // Collection: app_users
+    // Fields: { email: string, nombre: string, rol: string, permisos: map }
+    //
+    // Collection: app_config
+    // Fields: { startHour: number, endHour: number, theme: string }
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.rol == 'administrador' ||
+         (request.auth.token.email == "cristian.floresg.app@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Barberos
+    match /barberos/{barberoId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Servicios
+    match /servicios/{servicioId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Citas
+    match /citas/{citaId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Productos
+    match /productos/{productoId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Ventas
+    match /ventas/{ventaId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // App Users
+    match /app_users/{userId} {
+      // Allow list only for admins
+      allow list: if isAdmin();
+      // Allow get for self or admin
+      allow get: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Allow create if it's the first user or if admin
+      allow create: if isAuthenticated() && (isAdmin() || !exists(/databases/$(database)/documents/app_users/$(userId)));
+      // Allow update/delete only for admins
+      allow update, delete: if isAdmin();
+    }
+
+    // App Config
+    match /app_config/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

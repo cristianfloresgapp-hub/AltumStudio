@@ -1,0 +1,108 @@
+{
+  "entities": {
+    "barbero": {
+      "title": "Barbero",
+      "description": "Información de los barberos del equipo.",
+      "type": "object",
+      "properties": {
+        "nombre": { "type": "string", "description": "Nombre completo del barbero." },
+        "especialidad": { "type": "string", "description": "Especialidad del barbero." },
+        "activo": { "type": "boolean", "description": "Estado de disponibilidad del barbero." }
+      },
+      "required": ["nombre", "especialidad", "activo"]
+    },
+    "servicio": {
+      "title": "Servicio",
+      "description": "Catálogo de servicios ofrecidos.",
+      "type": "object",
+      "properties": {
+        "nombre": { "type": "string", "description": "Nombre del servicio." },
+        "precio": { "type": "number", "description": "Precio del servicio." },
+        "duracion": { "type": "number", "description": "Duración estimada en minutos." }
+      },
+      "required": ["nombre", "precio", "duracion"]
+    },
+    "cita": {
+      "title": "Cita",
+      "description": "Agendamiento de servicios.",
+      "type": "object",
+      "properties": {
+        "cliente": { "type": "string", "description": "Nombre del cliente." },
+        "servicio_id": { "type": "string", "description": "ID del servicio." },
+        "servicio_nombre": { "type": "string", "description": "Nombre del servicio (denormalizado)." },
+        "precio": { "type": "number", "description": "Precio cobrado (denormalizado)." },
+        "barbero_id": { "type": "string", "description": "ID del barbero asignado." },
+        "start_time": { "type": "string", "format": "date-time", "description": "Hora de inicio." },
+        "end_time": { "type": "string", "format": "date-time", "description": "Hora de fin." },
+        "status": { "type": "string", "enum": ["pendiente", "completada", "cancelada"], "description": "Estado de la cita." }
+      },
+      "required": ["cliente", "servicio_id", "servicio_nombre", "precio", "barbero_id", "start_time", "end_time", "status"]
+    },
+    "producto": {
+      "title": "Producto",
+      "description": "Inventario de productos.",
+      "type": "object",
+      "properties": {
+        "nombre": { "type": "string", "description": "Nombre del producto." },
+        "stock": { "type": "number", "description": "Cantidad disponible." },
+        "precio": { "type": "number", "description": "Precio de venta." },
+        "alerta_minima": { "type": "number", "description": "Umbral de alerta de stock." }
+      },
+      "required": ["nombre", "stock", "precio", "alerta_minima"]
+    },
+    "venta": {
+      "title": "Venta",
+      "description": "Registro de ventas de productos.",
+      "type": "object",
+      "properties": {
+        "producto_id": { "type": "string", "description": "ID del producto vendido." },
+        "cantidad": { "type": "number", "description": "Cantidad vendida." },
+        "total": { "type": "number", "description": "Monto total de la venta." },
+        "fecha": { "type": "string", "format": "date-time", "description": "Fecha de la venta." },
+        "barbero_id": { "type": "string", "description": "ID del barbero que realizó la venta." }
+      },
+      "required": ["producto_id", "cantidad", "total", "fecha", "barbero_id"]
+    },
+    "app_user": {
+      "title": "App User",
+      "description": "Usuarios con acceso a la plataforma.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Correo electrónico del usuario." },
+        "nombre": { "type": "string", "description": "Nombre completo." },
+        "rol": { "type": "string", "enum": ["administrador", "barbero"], "description": "Rol del usuario." },
+        "permisos": {
+          "type": "object",
+          "properties": {
+            "citas": { "type": "boolean" },
+            "servicios": { "type": "boolean" },
+            "barberos": { "type": "boolean" },
+            "inventario": { "type": "boolean" },
+            "reportes": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["email", "nombre", "rol", "permisos"]
+    },
+    "app_config": {
+      "title": "App Config",
+      "description": "Configuración global de la aplicación.",
+      "type": "object",
+      "properties": {
+        "startHour": { "type": "number", "description": "Hora de inicio del calendario." },
+        "endHour": { "type": "number", "description": "Hora de fin del calendario." },
+        "theme": { "type": "string", "enum": ["light", "dark", "system"], "description": "Tema visual." }
+      },
+      "required": ["startHour", "endHour", "theme"]
+    }
+  },
+  "firestore": {
+    "/barberos/{id}": { "schema": "barbero", "description": "Colección de barberos." },
+    "/servicios/{id}": { "schema": "servicio", "description": "Colección de servicios." },
+    "/citas/{id}": { "schema": "cita", "description": "Colección de citas agendadas." },
+    "/productos/{id}": { "schema": "producto", "description": "Colección de inventario." },
+    "/ventas/{id}": { "schema": "venta", "description": "Colección de ventas registradas." },
+    "/app_users/{id}": { "schema": "app_user", "description": "Usuarios de la aplicación." },
+    "/app_config/{id}": { "schema": "app_config", "description": "Configuración global." }
+  }
+}
